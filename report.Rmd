@@ -1,0 +1,86 @@
+---
+title: "Predicting Quality of Excercise Execution"
+author: "Oliver Hofkens"
+date: "24 June 2017"
+output: html_document
+---
+
+## Data Gathering
+
+The source of the data can be found here: http://groupware.les.inf.puc-rio.br/har  
+It was originally gathered and used in the following research:
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013. 
+
+We start by downloading the data and loading it into R,
+we then take a look at its structure.
+```{r, message=FALSE, warning=FALSE, results='hide', cache=TRUE}
+dir.create("data")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", "data/training.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", "data/testing.csv")
+training <- read.csv("data/training.csv", na.strings = c("NA", "#DIV/0!", ""))
+testing <- read.csv("data/testing.csv", na.strings = c("NA", "#DIV/0!", ""))
+summary(training)
+```
+
+## Preprocessing
+
+It's clear that some columns do not contain useful data, so let's try to filter them out.
+
+```{r, message=FALSE, warning=FALSE}
+library(caret)
+
+unnecessary <- nearZeroVar(training)
+names(training[unnecessary])
+```
+
+Caret's nearZeroVar function finds 36 variables that contain very little information, so let's exclude them for prediction.
+Some other variables are also unnecessary for prediction, such as X (the index), user_name (we don't care who's doing the excercise).
+We also find columns that are more than 75% 'NA' because they aren't really useful either.
+
+```{r}
+trainingFiltered <- training[-unnecessary]
+testingFiltered <- testing[-unnecessary]
+
+# find the percentage of values that are NA in a column
+meanNAs = function(col){
+    mean(is.na(col))
+}
+
+# filter out columns that are more than 75% NA
+necessaryCols <- sapply(trainingFiltered, meanNAs) < 0.75
+trainingFiltered <- trainingFiltered[necessaryCols]
+testingFiltered <- testingFiltered[necessaryCols]
+
+trainingFiltered <- trainingFiltered[-(1:5)]
+testingFiltered <- testingFiltered[-(1:5)]
+```
+
+To keep the option to compare multiple models, we save the 'testing' data for later 
+and we re-split the training set to use part of it as a new testing set.
+
+```{r}
+set.seed(123987)
+
+inTrain <- createDataPartition(trainingFiltered$classe, p=.7, list=FALSE)
+train <- trainingFiltered[inTrain,]
+test <- trainingFiltered[-inTrain,]
+```
+
+## Modeling
+
+We try a first model with the boosting method, as it is often a great performer.
+
+```{r, results='hide', message=FALSE, cache=TRUE}
+boost <- train(classe ~ ., data=train, method="gbm", verbose=FALSE) 
+```
+
+With the model built, we can test it on our homemade testing set:
+
+```{r, message=FALSE}
+testPred <- predict(boost, test)
+confusionMatrix(testPred, test$classe)
+```
+
+The boosting model has a high accuracy and the individual statistics per class look great too.
+The out-of-sample error rate is around 1.5%.  
+We will use this model for the prediction excercise.
